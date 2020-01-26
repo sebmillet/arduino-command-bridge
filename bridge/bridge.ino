@@ -63,10 +63,7 @@ char buffer[10];
 
 void loop() {
     byte len, sender, r;
-    RXConfig rxcfg;
-    rxcfg.def_timeout = true;
-    rxcfg.timeout = 0;
-    if ((r = rf.receive(&buffer, sizeof(buffer), &len, &sender, &rxcfg))
+    if ((r = rf.receive(&buffer, sizeof(buffer), &len, &sender))
         != ERR_OK) {
         if (r != ERR_TIMEOUT)
             dbgf("Reception error: %i: %s", r, rf.get_err_string(r));
