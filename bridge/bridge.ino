@@ -52,14 +52,16 @@ void setup() {
     cc1101_attach(&rf);
     rf.set_opt_byte(OPT_ADDRESS, MYADDR);
     rf.set_opt_byte(OPT_EMISSION_POWER, TXPOWER);
+    rf.set_auto_sleep(true);
     dbg("Device initialized");
 }
 
 void fwd433mhz(uint32_t code) {
+    delay(200);
     dbgf("Forwarding code 0x%lx to 433Mhz TX device", code);
 }
 
-char buffer[10];
+char buffer[60];
 
 void loop() {
     byte len, sender, r;
@@ -70,8 +72,12 @@ void loop() {
     } else {
         if (len >= sizeof(buffer))
             len = sizeof(buffer) - 1;
-        if (len == 5 && buffer[0] == INSTR_FWD433MHZ) {
-            fwd433mhz(uint32_ntoh((byte*)&buffer[1]));
+        if (len >= 5 && buffer[0] == INSTR_FWD433MHZ &&
+            2 + 4 * (int)(buffer[1]) == len) {
+            byte nb_codes = buffer[1];
+            for (byte i = 0; i < nb_codes; ++i) {
+                fwd433mhz(uint32_ntoh((byte*)&buffer[2 + 4 * i]));
+            }
         } else {
             dbgf("Don't understand instruction received, len = %i",
                           len);

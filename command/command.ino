@@ -63,18 +63,23 @@
 #define CODE_BTN0 0x4078495E
 #define CODE_BTN1 0x4078495D
 
+unsigned long codes_btn0[] = { 0x40A2BBAE, 0x4003894D, 0x4078495E };
+//unsigned long codes_btn0[] = { 0x40A2BBAE };
+unsigned long codes_btn1[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
+//unsigned long codes_btn1[] = { 0x40A2BBAD };
+
 #include "common.h"
 
-#define SEND_WITH_ACK   true
+#define SEND_ASK_FOR_ACK  true
 
-#define MYADDR          ADDR0
-#define TARGETADDR      ADDR1
-#define TXPOWER            0  // 0 = low power, 1 = high power (= long distance)
+#define MYADDR           ADDR0
+#define TARGETADDR       ADDR1
+#define TXPOWER              0  // 0 = lowpower, 1 = highpower (= long distance)
 
-#define BTNINT_PIN PB3   // D03 PIN
-#define BTNINT_INT INTF1 // D03 corresponds to interrupt 1
-#define BTN0_PIN   PB4   // D04 PIN
-#define BTN1_PIN   PB5   // D05 PIN
+#define BTNINT_PIN         PB3  // D03 PIN
+#define BTNINT_INT       INTF1  // D03 corresponds to interrupt 1
+#define BTN0_PIN           PB4  // D04 PIN
+#define BTN1_PIN           PB5  // D05 PIN
 
 #ifdef DEBUG
 
@@ -145,20 +150,44 @@ void setup() {
 }
 
 void button_pressed(short int button) {
-    unsigned long code = (button == 0 ? CODE_BTN0 : CODE_BTN1);
-    serial_printf("Button #%i: sending code 0x%08lx\n", button, code);
-    byte instr[5];
+    const unsigned long *codes;
+    byte nb_codes;
+    if (button == 0) {
+        codes = codes_btn0;
+        nb_codes = sizeof(codes_btn0) / sizeof(*codes_btn0);
+    } else {
+        codes = codes_btn1;
+        nb_codes = sizeof(codes_btn1) / sizeof(*codes_btn1);
+    }
+
+    serial_printf("Button #%i: sending following codes:\n", button);
+#ifdef DEBUG
+    for (byte i = 0; i < nb_codes; ++i) {
+        serial_printf("    #%i: 0x%08lx\n", i, codes[i]);
+    }
+#endif
+
+    size_t len = 2 + 4 * nb_codes;
+    byte* instr = new byte[len];
     instr[0] = INSTR_FWD433MHZ;
-    uint32_hton(&instr[1], code);
+    instr[1] = nb_codes;
+    for (byte i = 0; i < nb_codes; ++i) {
+        uint32_hton(&instr[2 + 4 * i], codes[i]);
+    }
+
+    serial_printf("len=%i\n", len);
 
     byte n;
-    byte r = rf.send(TARGETADDR, instr, sizeof(instr), SEND_WITH_ACK, &n);
+    byte r = rf.send(TARGETADDR, instr, len, SEND_ASK_FOR_ACK, &n);
+
+    delete []instr;
+
     if (r != ERR_OK) {
         serial_printf("Sending error: %i: %s - ack=%s, sent %i time(s)\n",
-                r, rf.get_err_string(r), (SEND_WITH_ACK ? "true" : "false"), n);
+                r, rf.get_err_string(r), (SEND_ASK_FOR_ACK ? "yes" : "no"), n);
     } else {
         serial_printf("Message send successful - ack=%s - sent %i time(s)\n",
-                (SEND_WITH_ACK ? "true" : "false"), n);
+                (SEND_ASK_FOR_ACK ? "yes" : "no"), n);
     }
 }
 
