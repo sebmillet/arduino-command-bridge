@@ -26,10 +26,42 @@
 
 #define COMMON_H
 
+//#define DEBUG
+
 #define INSTR_FWD433MHZ 0x01
 
 #define ADDR0           0x0B
 #define ADDR1           0x5E
+
+#ifdef DEBUG
+
+// Yes, instanciating a variable in a .h file is bad practice.
+// So?
+char serial_printf_buffer[80];
+
+static void serial_printf(const char* fmt, ...)
+     __attribute__((format(printf, 1, 2)));
+
+static void serial_printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(serial_printf_buffer, sizeof(serial_printf_buffer), fmt, args);
+    va_end(args);
+
+    serial_printf_buffer[sizeof(serial_printf_buffer) - 1] = '\0';
+    Serial.print(serial_printf_buffer);
+}
+
+static void serial_begin(long speed) {
+    Serial.begin(speed);
+}
+
+#else // DEBUG
+
+#define serial_printf(...)
+#define serial_begin(speed)
+
+#endif // DEBUG
 
 // hton = Host To Network
 void uint32_hton(byte bytes[4], uint32_t code) {

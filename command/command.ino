@@ -18,13 +18,13 @@
     7 GDO0      D02
     8 CSN (SS)  D10
 
-  *IMPORTANT*
+  **IMPORTANT**
     The PIN D03 is *NOT* plugged on CC1101 (as opposed to most schemas
-    instructions).
+    instructions that are found on Internet).
 
-  *CREDITS*
-  [1] More than one button triggering interrupt when pressed
-      Solution about this issue was found here:
+  **CREDITS**
+  [1] About "more than one button triggering interrupt when pressed"
+      Solution was found here:
       https://create.arduino.cc/projecthub/Svizel_pritula/
         10-buttons-using-1-interrupt-2bd1f8
 */
@@ -51,8 +51,6 @@
 #include <avr/power.h>
 #include "cc1101wrapper.h"
 
-#define DEBUG
-
     // Volet 1 (salon)
 //#define CODE_BTN0 0x40A2BBAE
 //#define CODE_BTN1 0x40A2BBAD
@@ -60,13 +58,13 @@
 //#define CODE_BTN0 0x4003894D
 //#define CODE_BTN1 0x4003894E
     // Volet 3 (chambre)
-#define CODE_BTN0 0x4078495E
-#define CODE_BTN1 0x4078495D
+//#define CODE_BTN0 0x4078495E
+//#define CODE_BTN1 0x4078495D
 
-unsigned long codes_btn0[] = { 0x40A2BBAE, 0x4003894D, 0x4078495E };
-//unsigned long codes_btn0[] = { 0x40A2BBAE };
-unsigned long codes_btn1[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
-//unsigned long codes_btn1[] = { 0x40A2BBAD };
+//unsigned long codes_btn0[] = { 0x40A2BBAE, 0x4003894D, 0x4078495E };
+unsigned long codes_btn0[] = { 0x40A2BBAE };
+//unsigned long codes_btn1[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
+unsigned long codes_btn1[] = { 0x40A2BBAD };
 
 #include "common.h"
 
@@ -74,40 +72,16 @@ unsigned long codes_btn1[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
 
 #define MYADDR           ADDR0
 #define TARGETADDR       ADDR1
-#define TXPOWER              0  // 0 = lowpower, 1 = highpower (= long distance)
+#define TXPOWER              1  // 0 = lowpower, 1 = highpower (= long distance)
 
 #define BTNINT_PIN         PB3  // D03 PIN
 #define BTNINT_INT       INTF1  // D03 corresponds to interrupt 1
 #define BTN0_PIN           PB4  // D04 PIN
 #define BTN1_PIN           PB5  // D05 PIN
 
-#ifdef DEBUG
-
-void serial_printf(const char* fmt, ...)
-     __attribute__((format(printf, 1, 2)));
-
-void serial_printf(const char *fmt, ...) {
-    char buffer[150];
-
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(buffer, sizeof(buffer), fmt, args);
-    va_end(args);
-
-    buffer[sizeof(buffer) - 1] = '\0';
-    Serial.print(buffer);
-}
-
-void serial_begin(long speed) {
-    Serial.begin(speed);
-}
-
-#else // DEBUG
-
-#define serial_printf(...)
-#define serial_begin(speed)
-
-#endif // DEBUG
+#define LED_OK_PIN           7
+#define LED_ERR_PIN          8
+#define LED_DELAY          300
 
 static RFLink rf;
 
@@ -147,9 +121,28 @@ void setup() {
     rf.set_opt_byte(OPT_EMISSION_POWER, TXPOWER);
     rf.set_opt_byte(OPT_ADDRESS, MYADDR);
     serial_printf("Device initialized\n");
+
+    // The below might not be useful, done to be sure we are in a well defined
+    // state when leaving setup().
+    configure_common();
+
+#ifdef LED_ERR_PIN
+    pinMode(LED_ERR_PIN, OUTPUT);
+#endif
+#ifdef LED_OK_PIN
+    pinMode(LED_OK_PIN, OUTPUT);
+#endif
 }
 
+// FIXME
+#include "MemoryFree.h"
+
+byte instr[60];
+
 void button_pressed(short int button) {
+
+    serial_printf("fm (in) = %i\n", freeMemory());
+
     const unsigned long *codes;
     byte nb_codes;
     if (button == 0) {
@@ -168,7 +161,7 @@ void button_pressed(short int button) {
 #endif
 
     size_t len = 2 + 4 * nb_codes;
-    byte* instr = new byte[len];
+//    byte* instr = new byte[len];
     instr[0] = INSTR_FWD433MHZ;
     instr[1] = nb_codes;
     for (byte i = 0; i < nb_codes; ++i) {
@@ -180,15 +173,31 @@ void button_pressed(short int button) {
     byte n;
     byte r = rf.send(TARGETADDR, instr, len, SEND_ASK_FOR_ACK, &n);
 
-    delete []instr;
+//    delete []instr;
 
     if (r != ERR_OK) {
         serial_printf("Sending error: %i: %s - ack=%s, sent %i time(s)\n",
                 r, rf.get_err_string(r), (SEND_ASK_FOR_ACK ? "yes" : "no"), n);
+
+#ifdef LED_ERR_PIN
+        digitalWrite(LED_ERR_PIN, HIGH);
+        delay(LED_DELAY);
+        digitalWrite(LED_ERR_PIN, LOW);
+#endif // LED_ERR_PIN
+
     } else {
         serial_printf("Message send successful - ack=%s - sent %i time(s)\n",
                 (SEND_ASK_FOR_ACK ? "yes" : "no"), n);
+
+#ifdef LED_OK_PIN
+        digitalWrite(LED_OK_PIN, HIGH);
+        delay(LED_DELAY);
+        digitalWrite(LED_OK_PIN, LOW);
+#endif // LED_OK_PIN
+
     }
+
+    serial_printf("fm (out) = %i\n", freeMemory());
 }
 
 void dummy() { }
