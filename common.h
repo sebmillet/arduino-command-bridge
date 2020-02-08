@@ -26,9 +26,11 @@
 
 #define COMMON_H
 
-//#define DEBUG
+#define DEBUG
 
-#define INSTR_FWD433MHZ 0x01
+#define INSTR_UNDEFINED  0x00
+#define INSTR_OPENALL    0x5E
+#define INSTR_CLOSEALL   0x51
 
 #define ADDR0           0x0B
 #define ADDR1           0x5E
@@ -62,24 +64,6 @@ static void serial_begin(long speed) {
 #define serial_begin(speed)
 
 #endif // DEBUG
-
-// hton = Host To Network
-void uint32_hton(byte bytes[4], uint32_t code) {
-    for (byte i = 0; i < 4; ++i) {
-        bytes[i] = (byte)code & 0xFF;
-        code >>= 8;
-    }
-}
-
-// ntoh = Network to Host
-uint32_t uint32_ntoh(byte bytes[4]) {
-    uint32_t code = 0;
-    for (signed short i = 3; i >= 0; --i) {
-        code <<= 8;
-        code |= bytes[i];
-    }
-    return code;
-}
 
 #endif // COMMON_H
 

@@ -29,11 +29,17 @@
 
 #define MYADDR          ADDR1
 #define SOURCEADDR      ADDR0
-#define TXPOWER             0  // 0 = lowpower, 1 = highpower (= long distance)
+#define TXPOWER             1  // 0 = lowpower, 1 = highpower (= long distance)
 
 #define LED_RECV_PIN        6
-#define LED_DELAY         300
+#define LED_DELAY         180
 
+//unsigned long codes_openall[] = { 0x40A2BBAE, 0x4003894D, 0x4078495E };
+unsigned long codes_openall[] = { 0x43210BAE, 0x4321094D, 0x4321095E };
+#define CODE_OPENALL_NB (sizeof(codes_openall) / sizeof(*codes_openall))
+//unsigned long codes_closeall[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
+unsigned long codes_closeall[] = { 0x98765BAD, 0x9876594E, 0x9876595D };
+#define CODE_CLOSEALL_NB (sizeof(codes_closeall) / sizeof(*codes_closeall))
 
 //
 // RF433MHZ TX MANAGEMENT
@@ -108,6 +114,9 @@ void setup() {
     rf.set_opt_byte(OPT_EMISSION_POWER, TXPOWER);
     rf.set_auto_sleep(true);
     serial_printf("Device initialized\n");
+#ifdef DEBUG
+    delay(20);
+#endif
 
     pinMode(RF_TRANSMIT_PIN, OUTPUT);
 #ifdef LED_RECV_PIN
@@ -115,12 +124,12 @@ void setup() {
 #endif
 }
 
-void fwd433mhz(uint32_t code) {
-    serial_printf("Forwarding code 0x%lx to 433Mhz TX device\n", code);
+void send433mhz(uint32_t code) {
+    serial_printf("Sending code 0x%lx to 433Mhz TX device\n", code);
     rf_send_instruction(code);
 }
 
-char buffer[60];
+char buffer[3];
 
 void loop() {
     byte len, sender, r;
@@ -129,22 +138,40 @@ void loop() {
         if (r != ERR_TIMEOUT)
             serial_printf("Reception error: %i: %s\n", r, rf.get_err_string(r));
     } else {
-        if (len >= sizeof(buffer))
-            len = sizeof(buffer) - 1;
-        if (len >= 5 && buffer[0] == INSTR_FWD433MHZ &&
-            2 + 4 * (int)(buffer[1]) == len) {
+        if (len > sizeof(buffer))
+            len = sizeof(buffer);
+        if (len == 3) {
+            byte count_openall = 0;
+            byte count_closeall = 0;
+            for (byte i = 0; i < 3; ++i) {
+                if (buffer[i] == INSTR_OPENALL)
+                    ++count_openall;
+                else if (buffer[i] == INSTR_CLOSEALL)
+                    ++count_closeall;
+            }
+            byte to_do = INSTR_UNDEFINED;
+            if (count_openall >= 2)
+                to_do = INSTR_OPENALL;
+            else if (count_closeall >= 2)
+                to_do = INSTR_CLOSEALL;
 
 #ifdef LED_RECV_PIN
             digitalWrite(LED_RECV_PIN, HIGH);
-            delay(LED_DELAY);
+            rf.delay_ms(LED_DELAY);
             digitalWrite(LED_RECV_PIN, LOW);
 #endif
 
-            rf.delay_ms(1000);
-
-            byte nb_codes = buffer[1];
-            for (byte i = 0; i < nb_codes; ++i) {
-                fwd433mhz(uint32_ntoh((byte*)&buffer[2 + 4 * i]));
+            unsigned long *codes = nullptr;
+            byte nb = 0;
+            if (to_do == INSTR_OPENALL) {
+                codes = codes_openall;
+                nb = CODE_OPENALL_NB;
+            } else if (to_do == INSTR_CLOSEALL) {
+                codes = codes_closeall;
+                nb = CODE_CLOSEALL_NB;
+            }
+            for (byte i = 0; i < nb; ++i) {
+                send433mhz(codes[i]);
             }
         } else {
             serial_printf("Don't understand instruction received, len = %i\n",

@@ -61,11 +61,6 @@
 //#define CODE_BTN0 0x4078495E
 //#define CODE_BTN1 0x4078495D
 
-//unsigned long codes_btn0[] = { 0x40A2BBAE, 0x4003894D, 0x4078495E };
-unsigned long codes_btn0[] = { 0x40A2BBAE };
-//unsigned long codes_btn1[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
-unsigned long codes_btn1[] = { 0x40A2BBAD };
-
 #include "common.h"
 
 #define SEND_ASK_FOR_ACK  true
@@ -137,43 +132,19 @@ void setup() {
 // FIXME
 #include "MemoryFree.h"
 
-byte instr[60];
+byte instr[3];
 
 void button_pressed(short int button) {
 
     serial_printf("fm (in) = %i\n", freeMemory());
 
-    const unsigned long *codes;
-    byte nb_codes;
-    if (button == 0) {
-        codes = codes_btn0;
-        nb_codes = sizeof(codes_btn0) / sizeof(*codes_btn0);
-    } else {
-        codes = codes_btn1;
-        nb_codes = sizeof(codes_btn1) / sizeof(*codes_btn1);
+    byte instrval = (button == 0 ? INSTR_OPENALL : INSTR_CLOSEALL);
+
+    for (byte i = 0; i < 3; ++i) {
+        instr[i] = instrval;
     }
-
-    serial_printf("Button #%i: sending following codes:\n", button);
-#ifdef DEBUG
-    for (byte i = 0; i < nb_codes; ++i) {
-        serial_printf("    #%i: 0x%08lx\n", i, codes[i]);
-    }
-#endif
-
-    size_t len = 2 + 4 * nb_codes;
-//    byte* instr = new byte[len];
-    instr[0] = INSTR_FWD433MHZ;
-    instr[1] = nb_codes;
-    for (byte i = 0; i < nb_codes; ++i) {
-        uint32_hton(&instr[2 + 4 * i], codes[i]);
-    }
-
-    serial_printf("len=%i\n", len);
-
     byte n;
-    byte r = rf.send(TARGETADDR, instr, len, SEND_ASK_FOR_ACK, &n);
-
-//    delete []instr;
+    byte r = rf.send(TARGETADDR, instr, sizeof(instr), SEND_ASK_FOR_ACK, &n);
 
     if (r != ERR_OK) {
         serial_printf("Sending error: %i: %s - ack=%s, sent %i time(s)\n",
@@ -181,7 +152,7 @@ void button_pressed(short int button) {
 
 #ifdef LED_ERR_PIN
         digitalWrite(LED_ERR_PIN, HIGH);
-        delay(LED_DELAY);
+        rf.delay_ms(LED_DELAY);
         digitalWrite(LED_ERR_PIN, LOW);
 #endif // LED_ERR_PIN
 
@@ -191,7 +162,7 @@ void button_pressed(short int button) {
 
 #ifdef LED_OK_PIN
         digitalWrite(LED_OK_PIN, HIGH);
-        delay(LED_DELAY);
+        rf.delay_ms(LED_DELAY);
         digitalWrite(LED_OK_PIN, LOW);
 #endif // LED_OK_PIN
 
