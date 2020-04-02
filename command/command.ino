@@ -22,11 +22,26 @@
     The PIN D03 is *NOT* plugged on CC1101 (as opposed to most schemas
     instructions that are found on Internet).
 
-  **CREDITS**
+  BUTTONS PLUGGING
+  ================
+
+  Button 0 (BTN0) plugged on D3 on one end and D4 on the other end
+  Button 1 (BTN1) plugged on D3 on one end and D5 on the other end
+
+  LEDS PLUGGING
+  =============
+
+  Green led ('OK') plugged on D7
+  Red led ('ERROR') plugged on D8
+
+  CREDITS
+  =======
+
   [1] About "more than one button triggering interrupt when pressed"
       Solution was found here:
-      https://create.arduino.cc/projecthub/Svizel_pritula/
-        10-buttons-using-1-interrupt-2bd1f8
+        https://create.arduino.cc/projecthub/Svizel_pritula/10-buttons-using-1-interrupt-2bd1f8
+      Warning, this URL connects buttons to D2, here we use D3 for the buttons
+      (D2 is used to manage CC1101).
 */
 
 /*

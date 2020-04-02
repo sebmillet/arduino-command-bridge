@@ -31,31 +31,129 @@
 #define SOURCEADDR      ADDR0
 #define TXPOWER             1  // 0 = lowpower, 1 = highpower (= long distance)
 
-#define LED_RECV_PIN        6
-#define LED_DELAY         180
+#define RF_AUTO_SLEEP    true
 
-//unsigned long codes_openall[] = { 0x40A2BBAE, 0x4003894D, 0x4078495E };
-unsigned long codes_openall[] = { 0x43210BAE, 0x4321094D, 0x4321095E };
-#define CODE_OPENALL_NB (sizeof(codes_openall) / sizeof(*codes_openall))
-//unsigned long codes_closeall[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
-unsigned long codes_closeall[] = { 0x98765BAD, 0x9876594E, 0x9876595D };
-#define CODE_CLOSEALL_NB (sizeof(codes_closeall) / sizeof(*codes_closeall))
+#define LED_RECV_PIN        6
+#define LED_DELAY         120
+
+#define ARRAYSZ(a) (sizeof(a) / sizeof(*a))
+
+unsigned long codes_openall[] = { 0x40A2BBAE, 0x4003894D, 0x4078495E };
+//unsigned long codes_openall[] = { 0x43210BAE, 0x4321094D, 0x4321095E };
+unsigned long codes_closeall[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
+//unsigned long codes_closeall[] = { 0x98765BAD, 0x9876594E, 0x9876595D };
+
+typedef struct {
+    byte code;
+    unsigned long *array_codes;
+    byte nb_codes;
+} code_t;
+
+code_t codes[] = {
+    { INSTR_OPENALL,  codes_openall,  ARRAYSZ(codes_openall)  },
+    { INSTR_CLOSEALL, codes_closeall, ARRAYSZ(codes_closeall) }
+};
+
+#define CODE_VOLET2_OPEN  0x4003894D
+#define CODE_VOLET2_CLOSE 0x4003894E
+
+typedef struct {
+    unsigned long code_0;
+    unsigned long delay_ms;
+    unsigned long code_after_delay;
+} delayed_code_t;
+
+delayed_code_t delayed_codes[] = {
+//    { 0x9876594E, 16500, 0x4321094D }
+    { 0x4003894E, 16500, 0x4003894D }
+};
+
+void rf_send_signal(byte val, unsigned int factor);
+void rf_send_code(const uint32_t code);
+void rf_send_instruction(const uint32_t code);
+
+typedef struct {
+    bool is_set;
+    unsigned long when_ms;
+    unsigned long code;
+} queue_t;
+
+class Sender {
+    private:
+        RFLink* rflink;
+        queue_t queue[4];
+
+    public:
+        Sender(RFLink* arg_rflink) {
+            rflink = arg_rflink;
+            for (byte i = 0; i < ARRAYSZ(queue); ++i)
+                queue[i].is_set = false;
+        };
+
+        void send(unsigned long code, bool manage_delayed = true);
+        void send_queued_codes();
+};
+
+void Sender::send(uint32_t code, bool manage_delay) {
+    serial_printf("Sending code 0x%lx to 433Mhz TX device\n", code);
+    if (manage_delay) {
+        for (byte i = 0; i < ARRAYSZ(delayed_codes); ++i) {
+            if (code == delayed_codes[i].code_0) {
+                byte j;
+                for (j = 0; j < ARRAYSZ(queue); ++j) {
+                    if (!queue[j].is_set) {
+                        queue[j].is_set = true;
+                        queue[j].when_ms = millis() + delayed_codes[i].delay_ms;
+                        queue[j].code = delayed_codes[i].code_after_delay;
+                        serial_printf("Adding code to queue\n");
+                        break;
+                    }
+                }
+                if (j >= ARRAYSZ(queue))
+                    serial_printf("Unable to add code to queue\n");
+            }
+        }
+    }
+    rflink->delay_ms(10);
+    rf_send_instruction(code);
+}
+
+void Sender::send_queued_codes() {
+    byte nb_in_queue;
+    do {
+        rflink->delay_ms(5);
+        unsigned long t = millis();
+        for (byte i = 0; i < ARRAYSZ(queue); ++i) {
+            if (queue[i].is_set) {
+                if (t >= queue[i].when_ms) {
+                    send(queue[i].code, false);
+                    queue[i].is_set = false;
+                }
+            }
+        }
+
+        nb_in_queue = 0;
+        for (byte i = 0; i < ARRAYSZ(queue); ++i) {
+            if (queue[i].is_set)
+                ++nb_in_queue;
+        }
+    } while (nb_in_queue >= 1);
+}
+
 
 //
 // RF433MHZ TX MANAGEMENT
 //
 
 #define RF_TRANSMIT_PIN     4
-#define RF_REPEAT_CODE_SEND 6
+#define RF_REPEAT_CODE_SEND 7
 const unsigned int RF_DELAYFACTOR =  114;
 // RF_ constants below correspond to transmission delays.
 // The exact transmission duration is "x RF_DELAYFACTOR", in microseconds.
+#define RF_ZERO   0   // No interval - just change signal status
 #define RF_TICK  10   // Smallest interval between two signal changes
 #define RF_SEP   48   // Sequence separator
 #define RF_LONG  500  // Long delay before transmission
-
-void rf_send_signal(byte val, unsigned int factor);
-void rf_send_code(const uint32_t code);
 
 void rf_send_instruction(const uint32_t code) {
     rf_send_signal(1, RF_LONG);
@@ -67,7 +165,6 @@ void rf_send_instruction(const uint32_t code) {
 
     rf_send_signal(0, RF_TICK);
     rf_send_signal(1, RF_TICK);
-    rf_send_signal(0, 0);
 }
 
 void rf_send_code(const uint32_t code) {
@@ -87,7 +184,7 @@ void rf_send_code(const uint32_t code) {
     }
 
     rf_send_signal(1, RF_SEP);
-    rf_send_signal(0, 0);
+    rf_send_signal(0, RF_ZERO);
 }
 
 void rf_send_signal(byte val, unsigned int factor) {
@@ -105,6 +202,7 @@ void rf_send_signal(byte val, unsigned int factor) {
 
 
 static RFLink rf;
+static Sender tx(&rf);
 
 void setup() {
     serial_begin(115200);
@@ -112,7 +210,7 @@ void setup() {
     cc1101_attach(&rf);
     rf.set_opt_byte(OPT_ADDRESS, MYADDR);
     rf.set_opt_byte(OPT_EMISSION_POWER, TXPOWER);
-    rf.set_auto_sleep(true);
+    rf.set_auto_sleep(RF_AUTO_SLEEP);
     serial_printf("Device initialized\n");
 #ifdef DEBUG
     delay(20);
@@ -124,55 +222,72 @@ void setup() {
 #endif
 }
 
-void send433mhz(uint32_t code) {
-    serial_printf("Sending code 0x%lx to 433Mhz TX device\n", code);
-    rf_send_instruction(code);
-}
-
-char buffer[3];
+byte buffer[3];
 
 void loop() {
     byte len, sender, r;
+    serial_printf("rf.receive()\n");
     if ((r = rf.receive(&buffer, sizeof(buffer), &len, &sender))
         != ERR_OK) {
+
         if (r != ERR_TIMEOUT)
             serial_printf("Reception error: %i: %s\n", r, rf.get_err_string(r));
+
     } else {
+
         if (len > sizeof(buffer))
             len = sizeof(buffer);
-        if (len == 3) {
-            byte count_openall = 0;
-            byte count_closeall = 0;
-            for (byte i = 0; i < 3; ++i) {
-                if (buffer[i] == INSTR_OPENALL)
-                    ++count_openall;
-                else if (buffer[i] == INSTR_CLOSEALL)
-                    ++count_closeall;
-            }
-            byte to_do = INSTR_UNDEFINED;
-            if (count_openall >= 2)
-                to_do = INSTR_OPENALL;
-            else if (count_closeall >= 2)
-                to_do = INSTR_CLOSEALL;
 
-#ifdef LED_RECV_PIN
-            digitalWrite(LED_RECV_PIN, HIGH);
-            rf.delay_ms(LED_DELAY);
-            digitalWrite(LED_RECV_PIN, LOW);
+        if (len == 3) {
+
+            byte count_codes[ARRAYSZ(codes)];
+            for (byte i = 0; i < ARRAYSZ(codes); ++i)
+                count_codes[i] = 0;
+            for (byte i = 0; i < 3; ++i)
+                for (byte j = 0; j < ARRAYSZ(codes); ++j)
+                    if (buffer[i] == codes[j].code)
+                        count_codes[j]++;
+
+#ifdef DEBUG
+            for (byte i = 0; i < 3; ++i) {
+                serial_printf("  byte[%i] = %u\n", i, (unsigned int)buffer[i]);
+            }
+            for (byte i = 0; i < ARRAYSZ(codes); ++i) {
+                serial_printf("  code[%i] = %i\n", i, count_codes[i]);
+            }
 #endif
 
-            unsigned long *codes = nullptr;
-            byte nb = 0;
-            if (to_do == INSTR_OPENALL) {
-                codes = codes_openall;
-                nb = CODE_OPENALL_NB;
-            } else if (to_do == INSTR_CLOSEALL) {
-                codes = codes_closeall;
-                nb = CODE_CLOSEALL_NB;
+            code_t *pcode = nullptr;
+            for (byte i = 0; i < ARRAYSZ(codes); ++i)
+                if (count_codes[i] >= 2)
+                    pcode = &codes[i];
+
+            if (pcode) {
+                serial_printf("Received a code to forward\n");
+#ifdef LED_RECV_PIN
+                digitalWrite(LED_RECV_PIN, HIGH);
+                rf.delay_ms(LED_DELAY);
+                digitalWrite(LED_RECV_PIN, LOW);
+#endif
+                for (byte i = 0; i < pcode->nb_codes; ++i) {
+                    tx.send(pcode->array_codes[i]);
+                }
+                tx.send_queued_codes();
+
+#ifdef LED_RECV_PIN
+                digitalWrite(LED_RECV_PIN, HIGH);
+                rf.delay_ms(LED_DELAY);
+                digitalWrite(LED_RECV_PIN, LOW);
+                rf.delay_ms(LED_DELAY);
+                digitalWrite(LED_RECV_PIN, HIGH);
+                rf.delay_ms(LED_DELAY);
+                digitalWrite(LED_RECV_PIN, LOW);
+#endif
+
+            } else {
+                serial_printf("No code to forward\n");
             }
-            for (byte i = 0; i < nb; ++i) {
-                send433mhz(codes[i]);
-            }
+
         } else {
             serial_printf("Don't understand instruction received, len = %i\n",
                           len);
