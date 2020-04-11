@@ -32,8 +32,8 @@
 #define INSTR_OPENALL    0xA1
 #define INSTR_CLOSEALL   0xC5
 
-#define ADDR0           0x0B
-#define ADDR1           0x5E
+#define ADDR0            0x0B
+#define ADDR1            0x5E
 
 #ifdef DEBUG
 
