@@ -26,14 +26,14 @@
 
 #define COMMON_H
 
-#define DEBUG
+//#define DEBUG
 
 #define INSTR_UNDEFINED  0x00
 #define INSTR_OPENALL    0xA1
 #define INSTR_CLOSEALL   0xC5
 
-#define ADDR0            0x0B
-#define ADDR1            0x5E
+#define ADDR0            0xAB
+#define ADDR1            0xCE
 
 #ifdef DEBUG
 

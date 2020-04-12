@@ -38,10 +38,34 @@
 
 #define ARRAYSZ(a) (sizeof(a) / sizeof(*a))
 
-unsigned long codes_openall[] = { 0x40A2BBAE, 0x4003894D, 0x4078495E };
-//unsigned long codes_openall[] = { 0x43210BAE, 0x4321094D, 0x4321095E };
-unsigned long codes_closeall[] = { 0x40A2BBAD, 0x4003894E, 0x4078495D };
-//unsigned long codes_closeall[] = { 0x98765BAD, 0x9876594E, 0x9876595D };
+//    // Salon
+#define CODE_VOLET1_OPEN  0x40A2BBAE
+#define CODE_VOLET1_CLOSE 0x40A2BBAD
+//    // Salle à manger
+#define CODE_VOLET2_OPEN  0x4003894D
+#define CODE_VOLET2_CLOSE 0x4003894E
+//    // Chambre
+#define CODE_VOLET3_OPEN  0x4078495E
+#define CODE_VOLET3_CLOSE 0x4078495D
+
+//#define CODE_VOLET1_OPEN  0x1234BBAE
+//#define CODE_VOLET1_CLOSE 0x1234BBAD
+//#define CODE_VOLET2_OPEN  0x1234894D
+//#define CODE_VOLET2_CLOSE 0x1234894E
+//#define CODE_VOLET3_OPEN  0x1234495E
+//#define CODE_VOLET3_CLOSE 0x1234495D
+
+unsigned long codes_openall[] = {
+    CODE_VOLET1_OPEN,
+    CODE_VOLET2_OPEN,
+    CODE_VOLET3_OPEN
+};
+
+unsigned long codes_closeall[] = {
+    CODE_VOLET1_CLOSE,
+    CODE_VOLET2_CLOSE,
+    CODE_VOLET3_CLOSE
+};
 
 typedef struct {
     byte code;
@@ -54,9 +78,6 @@ code_t codes[] = {
     { INSTR_CLOSEALL, codes_closeall, ARRAYSZ(codes_closeall) }
 };
 
-#define CODE_VOLET2_OPEN  0x4003894D
-#define CODE_VOLET2_CLOSE 0x4003894E
-
 typedef struct {
     unsigned long code_0;
     unsigned long delay_ms;
@@ -64,80 +85,36 @@ typedef struct {
 } delayed_code_t;
 
 delayed_code_t delayed_codes[] = {
-//    { 0x9876594E, 16500, 0x4321094D }
-    { 0x4003894E, 16500, 0x4003894D }
+    { CODE_VOLET2_CLOSE, 16500, CODE_VOLET2_OPEN }
+//    { CODE_VOLET2_CLOSE, 2500, CODE_VOLET2_OPEN }
 };
 
 void rf_send_signal(byte val, unsigned int factor);
 void rf_send_code(const uint32_t code);
 void rf_send_instruction(const uint32_t code);
 
-typedef struct {
-    bool is_set;
-    unsigned long when_ms;
-    unsigned long code;
-} queue_t;
+void deferred_exec_send_code(void* data) {
+    serial_printf("deferred_exec_send_code: "
+                  "now sending code 0x%lx to 433Mhz TX device\n",
+                  *(unsigned long *)data);
+    rf_send_instruction(*(unsigned long *)data);
+}
 
-class Sender {
-    private:
-        RFLink* rflink;
-        queue_t queue[4];
-
-    public:
-        Sender(RFLink* arg_rflink) {
-            rflink = arg_rflink;
-            for (byte i = 0; i < ARRAYSZ(queue); ++i)
-                queue[i].is_set = false;
-        };
-
-        void send(unsigned long code, bool manage_delayed = true);
-        void send_queued_codes();
-};
-
-void Sender::send(uint32_t code, bool manage_delay) {
-    serial_printf("Sending code 0x%lx to 433Mhz TX device\n", code);
-    if (manage_delay) {
+void send(RFLink* rf, uint32_t code, bool manage_delayed) {
+    if (manage_delayed) {
         for (byte i = 0; i < ARRAYSZ(delayed_codes); ++i) {
             if (code == delayed_codes[i].code_0) {
-                byte j;
-                for (j = 0; j < ARRAYSZ(queue); ++j) {
-                    if (!queue[j].is_set) {
-                        queue[j].is_set = true;
-                        queue[j].when_ms = millis() + delayed_codes[i].delay_ms;
-                        queue[j].code = delayed_codes[i].code_after_delay;
-                        serial_printf("Adding code to queue\n");
-                        break;
-                    }
-                }
-                if (j >= ARRAYSZ(queue))
-                    serial_printf("Unable to add code to queue\n");
+                rf->deferred_exec(delayed_codes[i].delay_ms,
+                                 deferred_exec_send_code,
+                                 &delayed_codes[i].code_after_delay);
+                serial_printf("Scheduled deferred_exec_send_code execution in "
+                  "%lu ms\n", delayed_codes[i].delay_ms);
             }
         }
     }
-    rflink->delay_ms(10);
+//    rflink->delay_ms(10);
+    serial_printf("send: now sending code 0x%lx to 433Mhz TX device\n", code);
     rf_send_instruction(code);
-}
-
-void Sender::send_queued_codes() {
-    byte nb_in_queue;
-    do {
-        rflink->delay_ms(5);
-        unsigned long t = millis();
-        for (byte i = 0; i < ARRAYSZ(queue); ++i) {
-            if (queue[i].is_set) {
-                if (t >= queue[i].when_ms) {
-                    send(queue[i].code, false);
-                    queue[i].is_set = false;
-                }
-            }
-        }
-
-        nb_in_queue = 0;
-        for (byte i = 0; i < ARRAYSZ(queue); ++i) {
-            if (queue[i].is_set)
-                ++nb_in_queue;
-        }
-    } while (nb_in_queue >= 1);
 }
 
 
@@ -202,7 +179,7 @@ void rf_send_signal(byte val, unsigned int factor) {
 
 
 static RFLink rf;
-static Sender tx(&rf);
+//static Sender tx(&rf);
 
 void setup() {
     serial_begin(115200);
@@ -269,10 +246,11 @@ void loop() {
                 rf.delay_ms(LED_DELAY);
                 digitalWrite(LED_RECV_PIN, LOW);
 #endif
+                rf.cancel_deferred_exec();
                 for (byte i = 0; i < pcode->nb_codes; ++i) {
-                    tx.send(pcode->array_codes[i]);
+                    send(&rf, pcode->array_codes[i], true);
                 }
-                tx.send_queued_codes();
+//                tx.send_queued_codes();
 
 #ifdef LED_RECV_PIN
                 digitalWrite(LED_RECV_PIN, HIGH);
